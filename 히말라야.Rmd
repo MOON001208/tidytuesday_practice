@@ -1,0 +1,158 @@
+---
+title: "Himalayan"
+author: "맞갖다"
+date: "2025-01-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 데이터 불러오기
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load('2025-01-21')
+
+exped_tidy <- tuesdata$exped_tidy
+peaks_tidy <- tuesdata$peaks_tidy
+
+str(exped_tidy)
+str(peaks_tidy)
+```
+
+### 다양한 산맥(HIMAL_FACTOR)에 따른 등반 상태(PSTATUS)의 분포는 어떻습니까?
+
+```{r}
+library(tidyverse)
+peaks_tidy |> 
+  group_by(HIMAL_FACTOR) |> 
+  summarise(
+    x_label= max(PSTATUS),
+    y_label = max(density(PSTATUS)$y),
+    label = first(HIMAL_FACTOR)
+  ) |> 
+  ggplot() +
+  geom_density(data=peaks_tidy,aes(x=PSTATUS, color=factor(HIMAL_FACTOR)),alpha=0.4) +
+  ggrepel::geom_label_repel(aes(x=x_label,y=y_label,label=label)) + 
+  labs(title="다양한 산맥에 따른 등반 상태의 분포",x="등반 상태",y=NULL) +
+  theme_minimal()
+
+```
+
+등반상태 2는 Climbed을 뜻함. 1은 unclimbed 보통 등산으로 많이 하는 듯 Damodar, Rolwaling 산이 가장 많이 등반이 되었나봄(등반하기 쉬운 난이도인가?) Annapurna가 한국에선 유명한거 같은데 그 위에는 더 쉽고 유명한가봄
+
+### 어느 산맥(HIMAL_FACTOR)이 가장 높은 평균 봉우리 높이(HEIGHTM)를 가지고 있습니까?
+
+```{r}
+peaks_tidy |> group_by(HIMAL_FACTOR) |> 
+  summarise(mean_height = mean(HEIGHTM)) |> 
+  ggplot(aes(x= reorder(HIMAL_FACTOR,-mean_height), y=mean_height,fill=HIMAL_FACTOR)) +
+  geom_bar(stat='identity') +
+  theme(axis.text.x=element_text(angle=90, hjust=1),legend.position = "none") +
+  labs(title = "산맥 별 평균 봉우리 높이", x = "산맥이름",y="높이(m)")
+```
+
+산맥별로 높이 차이는 크게 안나는 듯 하다 6km가 넘는 산이라니 등산하기 힘들겠다.
+
+### 열려 있는(OPEN) 피크와 열려 있지 않은 피크의 피크 높이(HEIGHTM) 분포는 어떻게 됩니까?
+
+```{r}
+ggplot(data=peaks_tidy)+
+  geom_density(aes(x=HEIGHTM,color=OPEN)) +
+  labs(title="열려 있는 피크에 따른 피크의 높이",x="높이",y=NULL)+
+  scale_y_continuous(labels = scales::number_format(big.mark=','))
+# 바이올린 그래프
+# ggplot(peaks_tidy, aes(x = OPEN, y = HEIGHTM, fill = OPEN)) +
+#   geom_violin(alpha = 0.7) +
+#   labs(
+#     title = "Violin Plot of Peak Heights by Open Status",
+#     x = "Open Status",
+#     y = "Peak Height (m)"
+#   ) +
+#   scale_fill_manual(values = c("blue", "red"), labels = c("Closed", "Open")) +
+#   theme_minimal()
+
+```
+
+정상이 열려있는 산맥은 6300m 정도가 가장 많은 것으로 보이고 정상이 열려있지 않은 산맥은 6700m 정도이다. 산맥이 높을 수록 가기 힘드니까 정상이 열려있지 않은가 보다.
+
+### 모든 원정대를 통틀어 가장 높은 성공률(SUCCESS1, SUCCESS2, SUCCESS3, SUCCESS4)을 보인 등반 경로(ROUTE1, ROUTE2, ROUTE3, ROUTE4)는 무엇입니까?
+
+```{r}
+#성공률 계산
+route_success <- exped_tidy |> 
+  select(starts_with("ROUTE"),starts_with("SUCCESS")) |> 
+  pivot_longer(cols=everything(),names_to = c(".value","index"),names_pattern = "(ROUTE|SUCCESS)(\\d+)") |> 
+  filter(!is.na(ROUTE))
+
+route_success_rate <- route_success |> 
+  group_by(ROUTE) |> 
+  summarise(total_attempts = n(),
+            total_success = sum(SUCCESS,na.rm=T),
+            success_rate = total_success/total_attempts) |> 
+  arrange(desc(success_rate))
+
+route_success_rate |> filter(success_rate!=0) |> 
+  ggplot(aes(y=reorder(ROUTE,success_rate), x=success_rate,fill=ROUTE)) + 
+  geom_bar(stat="identity") +
+  scale_x_continuous(labels = scales::percent) +
+  theme_minimal() + 
+  theme(legend.position = "none") +
+  labs(title = "등반경로 별 성공률",x="성공률",y="등반경로")
+
+
+```
+
+절반가량의 등산 루트가 성공률 100%로 기록되어있다. S FACE가 25%정도이고 0%정도인 등산경로도 있다. 여기에 보이는 경로 이외에는 가지 않는 것이 낫겠다.
+
+### 보충 산소(O2USED, O2NONE) 사용은 정상 등반 성공률에 어떤 영향을 미칩니까?
+
+```{r}
+exped_tidy |> 
+  select(O2USED, starts_with("SUCCESS")) |> 
+  pivot_longer(cols=starts_with("SUCCESS"), names_to="SUCCESS_TYPE",values_to="SUCCESS") |> 
+  group_by(O2USED, SUCCESS_TYPE) |> 
+  summarise(success_rate = mean(SUCCESS,na.rm=T)) |> 
+  ggplot(aes(x= SUCCESS_TYPE, y=success_rate, fill=O2USED)) +
+  geom_bar(stat='identity', position='dodge') +
+   labs(title = "Success Rate by O2 Usage",
+       x = "Success Type",
+       y = "Success Rate") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+보충 산소가 있으면 등산 성공률이 1.5배 정도 증가한다. 등반시에 보충산소를 꼭 챙겨가자.
+
+### 악천후(TERMREASON = 4)가 기술적 어려움(TERMREASON = 10)에 비해 종료에 영향을 미치는 빈도는 얼마나 됩니까?
+
+```{r}
+reason <- exped_tidy |> select(TERMREASON, TERMDATE) |> 
+  filter(TERMREASON==c(4,10)) |> 
+  group_by(TERMREASON) |> 
+  summarise(count=n())
+
+total_count <- nrow(exped_tidy)
+reason_counts <- reason |> 
+  mutate(등반종료 = count/total_count)
+print(reason_counts)
+```
+
+전체 등반을 기준으로 하였을 때 악천후로 인하여 등반이 종료되는 비율은 4.5%, 기술적 어려움으로 인하여 등반이 종료되는 비율은 0.5%정도이다. 기술의 발전에 따라 기술적 어려움으로 등반이 종료되는 경우는 별로 없는 것으로 확인이 되었으며 악천후로 인하여 등반이 종료된 경우는 가끔 있는 것 같다.
+
+### 고용된 인력이 없는 원정대(NOHIRED)는 사망(MDEATH)률이 더 높거나 낮은가요
+
+```{r}
+exped_tidy |> 
+  group_by(NOHIRED) |> 
+  reframe(death_rate = sum(MDEATHS,na.rm=T)/sum(TOTMEMBERS,na.rm=T)) |> 
+  ggplot(aes(y=death_rate, x=NOHIRED, fill=NOHIRED)) +
+  geom_bar(stat='identity') +
+  labs(title = "고용된 인력의 존재에 따른 등산객 사망률",x="고용된 인력 여부",y="사망률") + 
+  theme_minimal() +
+  theme(legend.position = 'none')
+```
+
+왜 고용된 인력이 있으면 사먕률이 올라갈까? 고용된 인력이 있을 수록 등산이 험난해서 사망자가 생기는 건가?
